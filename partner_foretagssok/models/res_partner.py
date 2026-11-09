@@ -206,14 +206,62 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
         interactive = len(self) == 1 and bool(
             self.env.context.get('foretagsapi_interactive'))
         action = False
-        for partner in self:
-            result = partner._foretagsapi_enrich_single(interactive=interactive)
-            if result:
-                action = result
+        if len(self) > 1:
+            self._foretagsapi_enrich_multi()
+        else:
+            for partner in self:
+                result = partner._foretagsapi_enrich_single(interactive=interactive)
+                if result:
+                    action = result
         # Keep the chain alive for other enrich modules
         if hasattr(super(ResPartner, self), 'partner_enrich'):
             super(ResPartner, self).partner_enrich()
         return action
+
+    BULK_CHUNK = 50
+
+    def _foretagsapi_enrich_multi(self):
+        """The multi-record action, enriched in bulk.
+
+        SEC-C 157: the loop used to call the API once per record with a
+        10-second timeout each, and one failure rolled the whole batch back.
+        Partners with an organisation number are now looked up in chunks of
+        50 through the bulk endpoint, every record is applied inside its own
+        savepoint so one failure costs only that record, and a record the
+        bulk lookup cannot find falls back to the single-record path (name
+        search). Records without an organisation number still go one by one,
+        since only the single search endpoint can find them."""
+        with_registry = self.filtered(
+            lambda p: p.company_type == 'company'
+            and (p.company_registry or '').strip())
+        companies = {}
+        registries = [p.company_registry for p in with_registry]
+        for start in range(0, len(registries), self.BULK_CHUNK):
+            chunk = registries[start:start + self.BULK_CHUNK]
+            for company in self._foretagsapi_lookup_by_org_numbers(chunk):
+                org = company.get('orgNumber')
+                if org:
+                    companies[re.sub(r'\D', '', str(org))] = company
+        for partner in with_registry:
+            try:
+                with self.env.cr.savepoint():
+                    company = companies.get(
+                        re.sub(r'\D', '', partner.company_registry))
+                    if company:
+                        partner._foretagsapi_apply_company(
+                            company, name_match=False, interactive=False)
+                    else:
+                        partner._foretagsapi_enrich_single(interactive=False)
+            except Exception:
+                _logger.exception(
+                    'FöretagsAPI bulk enrichment failed for %s', partner.id)
+        for partner in self - with_registry:
+            try:
+                with self.env.cr.savepoint():
+                    partner._foretagsapi_enrich_single(interactive=False)
+            except Exception:
+                _logger.exception(
+                    'FöretagsAPI enrichment failed for %s', partner.id)
 
     def _foretagsapi_enrich_single(self, interactive=False):
         self.ensure_one()
