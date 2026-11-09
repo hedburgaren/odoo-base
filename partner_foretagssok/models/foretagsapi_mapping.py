@@ -82,7 +82,11 @@ class ForetagsapiMappingMixin(models.AbstractModel):
                 'description': description,
             }
             try:
-                new_sni = sni_env.create(create_vals)
+                # SEC-C 159: a failed create must not poison the whole
+                # transaction; the savepoint rolls back only this SNI row,
+                # and the rest of the enrichment continues.
+                with self.env.cr.savepoint():
+                    new_sni = sni_env.create(create_vals)
                 records |= new_sni
             except Exception as e:
                 _logger.warning('Could not create SNI %s: %s', code, e)
