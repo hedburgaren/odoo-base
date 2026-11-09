@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import re
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -87,8 +88,20 @@ class ForetagssokSimilarWizard(models.TransientModel):
 
     def action_create_partners(self):
         self.ensure_one()
+        lines = self.line_ids.filtered('selected')
+        if not lines:
+            raise UserError(_('No rows were selected.'))
+        # SEC-C 161: a selected line whose organisation number already exists
+        # as a partner is skipped, so the wizard no longer creates duplicates.
+        existing = self.env['res.partner'].search([
+            ('company_registry', 'in', lines.filtered('org_number').mapped('org_number'))])
+        existing_digits = {
+            re.sub(r'\D', '', partner.company_registry) for partner in existing}
+        new_lines = lines.filtered(
+            lambda line: not line.org_number
+            or re.sub(r'\D', '', line.org_number) not in existing_digits)
         created = self.env['res.partner']
-        for line in self.line_ids.filtered('selected'):
+        for line in new_lines:
             partner = self.env['res.partner'].create({
                 'name': line.name,
                 'company_type': 'company',
@@ -98,8 +111,16 @@ class ForetagssokSimilarWizard(models.TransientModel):
                 'city': line.city,
             })
             created |= partner
+        # SEC-C 161: new partners are filled from FöretagsAPI through the
+        # ordinary enrich path (bulk lookup, one savepoint per record), not
+        # left as half-filled rows.
+        if created:
+            created.partner_enrich()
         if not created:
-            raise UserError(_('No rows were selected.'))
+            raise UserError(_(
+                'All %(count)s selected companies already exist as partners '
+                '(organisation number). Nothing was created.',
+                count=len(lines)))
         return {
             'type': 'ir.actions.act_window',
             'name': _('Created Partners'),
