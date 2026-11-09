@@ -24,7 +24,9 @@
     # SEC-B 2026-11-09: 18.0.1.1.0, enrichment fills only empty identity fields
     # (confirmation wizard), no fabricated VAT, API key from config parameter
     # or FORETAGSAPI_API_KEY, .env loader removed.
-    'version': '18.0.1.1.0',
+    # SEC-B decision 2026-11-09: 18.0.1.2.0, fill-empty-only, never overwrite;
+    # a conflicting value is reported in the chatter, never applicable.
+    'version': '18.0.1.2.0',
     'summary': 'Enrich partner with data from FöretagsAPI.se',
     'category': 'Website',
     'description': """

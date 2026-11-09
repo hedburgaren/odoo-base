@@ -16,9 +16,9 @@ _logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = 'https://data.foretagsapi.se'
 ENV_API_KEY_NAME = 'FORETAGSAPI_API_KEY'
 
-# SEC-B 2026-11-09 (finding 156): fields that enrichment may only fill when
-# empty. A differing value, or any value from a name-only match, goes through
-# a confirmation step instead of being written directly.
+# SEC-B 2026-11-09 (findings 156, 160): fields that enrichment may only fill
+# when empty, never overwrite. A differing value is only reported; name and
+# org. number from a name-only match go through a confirmation step.
 IDENTITY_FIELDS = ('name', 'company_registry')
 ADDRESS_FIELDS = ('street', 'zip', 'city', 'country_id')
 CONFIRM_FIELDS = IDENTITY_FIELDS + ADDRESS_FIELDS
@@ -275,14 +275,18 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
     def _foretagsapi_split_confirmations(self, vals, name_match):
         """Remove from ``vals`` everything that must not be written directly.
 
-        Name, org. number and address fields are only filled when empty.
-        When the API value differs from a non-empty value, it is a conflict.
-        When the match came from a name search, name and org. number are
-        never written directly, not even into empty fields. Returns the list
-        of items to confirm (dicts for the confirmation wizard lines).
+        SEC-B decision 2026-11-09 (finding 160): enrichment only fills empty
+        fields, it never overwrites. Name, org. number and address fields:
+        * non-empty and equal to the API value: nothing to do;
+        * non-empty and different: a conflict, never applicable, only
+          reported (read-only, chatter note);
+        * empty: written directly, except name and org. number from a
+          name-only match, which wait for confirmation in the wizard.
+        Returns (items to confirm, conflicts), both lists of dicts.
         """
         self.ensure_one()
         items = []
+        conflicts = []
         for fname in CONFIRM_FIELDS:
             if fname not in vals:
                 continue
@@ -302,15 +306,33 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
                 current_display = self[fname] or ''
                 proposed_display = proposed
                 proposed_raw = proposed
-            items.append({
+            item = {
                 'field_name': fname,
                 'field_label': self._fields[fname]._description_string(self.env),
                 'current_value': current_display,
                 'proposed_value': proposed_display,
                 'proposed_raw': proposed_raw,
-                'reason': 'conflict' if is_set else 'name_match',
-            })
-        return items
+            }
+            if is_set:
+                conflicts.append(item)
+            else:
+                items.append(dict(item, reason='name_match'))
+        return items, conflicts
+
+    def _foretagsapi_conflict_note(self, conflicts):
+        lines = Markup('').join(
+            Markup('<li>%s: %s / %s</li>') % (
+                item['field_label'],
+                item['current_value'],
+                item['proposed_value'],
+            ) for item in conflicts
+        )
+        return Markup('%s<ul>%s</ul>') % (
+            _('FöretagsAPI enrichment only fills empty fields. These fields '
+              'already have a value and were left unchanged '
+              '(current value / value from FöretagsAPI):'),
+            lines,
+        )
 
     def _foretagsapi_skipped_note(self, items):
         empty = _('(empty)')
@@ -322,9 +344,9 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
             ) for item in items
         )
         return Markup('%s<ul>%s</ul>') % (
-            _('FöretagsAPI enrichment did not apply these fields '
-              '(current value / proposed value). Open the contact and use '
-              '"Enrich from FöretagsAPI" to confirm them one by one:'),
+            _('FöretagsAPI found a match by name only, so these empty fields '
+              'were not filled (current value / proposed value). Open the '
+              'contact and use "Enrich from FöretagsAPI" to confirm them:'),
             lines,
         )
 
@@ -349,7 +371,8 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
         if not vals:
             return False
 
-        confirm_items = self._foretagsapi_split_confirmations(vals, name_match)
+        confirm_items, conflicts = self._foretagsapi_split_confirmations(
+            vals, name_match)
 
         # Replace financials for the same fiscal year instead of duplicating
         if 'foretagssok_financial_ids' in vals:
@@ -371,6 +394,12 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
 
         message = self._foretagsapi_enrichment_message(company, vals)
         self.message_post(body=message, message_type='notification')
+
+        if conflicts:
+            self.message_post(
+                body=self._foretagsapi_conflict_note(conflicts),
+                message_type='notification',
+            )
 
         if confirm_items:
             if interactive:

@@ -31,13 +31,19 @@ Usage
 -----
 
 * Open a company contact and click **Enrich from FöretagsAPI**.
-* Name, organisation number and address are only filled when empty. A
-  differing value, or any name or organisation number from a name-only match,
-  is shown in a confirmation wizard with one checkbox per line (unchecked by
-  default). Only checked lines are written.
-* The server action on several contacts never opens a wizard: it skips those
-  fields and posts a chatter note per contact.
-* VAT numbers are never set by enrichment.
+* The rule (decision 2026-11-09): enrichment only fills empty fields. It
+  never overwrites a field that has a value, and it never writes a VAT number.
+* Name, organisation number and address are filled when empty. If a field has
+  a different value, it is kept and the FöretagsAPI value is only mentioned in
+  the chatter. There is no checkbox to overwrite it.
+* If the company was found by name only, name and organisation number are not
+  filled automatically. A wizard lists the proposed values for empty fields,
+  one unchecked checkbox per line, and only checked lines are filled. A field
+  that got a value in the meantime is refused.
+* The server action on several contacts never opens a wizard: it skips name
+  only matches and posts a chatter note per contact.
+* The module's own fields (status, SNI codes, estimates, financials) are
+  refreshed as before, they are not standard partner fields.
 * If the partner has no organisation number, the module searches by name. When
   several matches exist, a notification is posted and the user must add an
   organisation number.

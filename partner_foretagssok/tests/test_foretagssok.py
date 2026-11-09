@@ -71,42 +71,53 @@ class TestForetagssok(TransactionCase):
         self.assertEqual(partner.city, 'Linköping')
         self.assertEqual(partner.name, 'Testbolaget AB')
 
-    def test_156_conflicting_name_is_not_overwritten_and_wizard_opens(self):
+    def test_156_conflicts_are_never_written_nor_offered_in_a_wizard(self):
+        # Rule 1 (decision 2026-11-09): a differing non-empty value is kept,
+        # shown only in the chatter, and no wizard with an apply box opens.
         partner = self._company_partner(company_registry='556000-1234', city='Malmö')
         action = self._enrich(partner, interactive=True)
+        self.assertFalse(action)
         self.assertEqual(partner.name, 'Gammalt Namn AB')
         self.assertEqual(partner.city, 'Malmö')
-        self.assertTrue(action)
-        self.assertEqual(action['res_model'], 'foretagssok.enrich.wizard')
-        wizard = self.env['foretagssok.enrich.wizard'].browse(action['res_id'])
-        by_field = {line.field_name: line for line in wizard.line_ids}
-        self.assertIn('name', by_field)
-        self.assertIn('city', by_field)
-        self.assertEqual(by_field['name'].current_value, 'Gammalt Namn AB')
-        self.assertEqual(by_field['name'].proposed_value, 'Testbolaget AB')
-        self.assertFalse(any(line.apply for line in wizard.line_ids))
-        # Applying with nothing ticked writes nothing.
-        wizard.action_apply()
-        self.assertEqual(partner.name, 'Gammalt Namn AB')
-        # Tick the name only.
-        by_field['name'].apply = True
-        wizard.action_apply()
-        self.assertEqual(partner.name, 'Testbolaget AB')
-        self.assertEqual(partner.city, 'Malmö')
+        self.assertEqual(partner.street, 'Storgatan 1', 'empty field is still filled')
+        self.assertEqual(self.env['foretagssok.enrich.wizard'].search_count([]), 0)
+        bodies = ' '.join(partner.message_ids.mapped('body'))
+        self.assertIn('only fills empty fields', bodies)
+        self.assertIn('Testbolaget AB', bodies)
 
-    def test_156_wizard_applies_country_line(self):
-        sweden = self.env.ref('base.se')
+    def test_156_country_conflict_is_not_overwritten(self):
         norway = self.env.ref('base.no')
         partner = self._company_partner(
             company_registry='556000-1234', name='Testbolaget AB',
             country_id=norway.id)
         action = self._enrich(partner, interactive=True)
+        self.assertFalse(action)
+        self.assertEqual(partner.country_id, norway)
+
+    def test_156_apply_refuses_field_filled_after_wizard_opened(self):
+        # Rule 1, re-check at apply: the partner changed while the wizard was
+        # open, the line must not overwrite the new value.
+        partner = self._company_partner(name='Testbolaget AB')
+        action = self._enrich(partner, interactive=True, companies={}, search=[COMPANY])
         wizard = self.env['foretagssok.enrich.wizard'].browse(action['res_id'])
-        line = wizard.line_ids.filtered(lambda l: l.field_name == 'country_id')
-        self.assertEqual(len(line), 1)
+        line = wizard.line_ids.filtered(lambda l: l.field_name == 'company_registry')
         line.apply = True
+        partner.company_registry = '999999-9999'
         wizard.action_apply()
-        self.assertEqual(partner.country_id, sweden)
+        self.assertEqual(partner.company_registry, '999999-9999')
+        self.assertIn('left unchanged', ' '.join(partner.message_ids.mapped('body')))
+
+    def test_156_apply_refuses_a_hand_made_conflict_line(self):
+        # A conflict line created directly (not by enrichment) is refused too.
+        partner = self._company_partner(name='Gammalt Namn AB')
+        wizard = self.env['foretagssok.enrich.wizard'].create({
+            'partner_id': partner.id,
+            'line_ids': [(0, 0, {
+                'field_name': 'name', 'field_label': 'Name',
+                'proposed_raw': 'Testbolaget AB', 'apply': True})],
+        })
+        wizard.action_apply()
+        self.assertEqual(partner.name, 'Gammalt Namn AB')
 
     def test_156_name_search_hit_is_never_written_directly(self):
         partner = self._company_partner(name='Testbolaget AB')
@@ -118,7 +129,11 @@ class TestForetagssok(TransactionCase):
         wizard = self.env['foretagssok.enrich.wizard'].browse(action['res_id'])
         line = wizard.line_ids.filtered(lambda l: l.field_name == 'company_registry')
         self.assertEqual(line.reason, 'name_match')
+        self.assertEqual(wizard.line_ids.mapped('reason'), ['name_match'] * len(wizard.line_ids))
         self.assertFalse(line.apply)
+        # Rule 2: unticked writes nothing, ticking fills the empty field.
+        wizard.action_apply()
+        self.assertFalse(partner.company_registry)
         line.apply = True
         wizard.action_apply()
         self.assertEqual(partner.company_registry, '556000-1234')
@@ -145,9 +160,8 @@ class TestForetagssok(TransactionCase):
         self.assertEqual(p1.name, 'Annat AB')
         self.assertEqual(p2.name, 'Helt Annat AB')
         self.assertFalse(p2.company_registry)
-        for partner in (p1, p2):
-            bodies = ' '.join(partner.message_ids.mapped('body'))
-            self.assertIn('did not apply', bodies)
+        self.assertIn('only fills empty fields', ' '.join(p1.message_ids.mapped('body')))
+        self.assertIn('by name only', ' '.join(p2.message_ids.mapped('body')))
         self.assertEqual(
             self.env['foretagssok.enrich.wizard'].search_count([]), 0,
             'The multi-record path must not create wizards.')
@@ -172,6 +186,13 @@ class TestForetagssok(TransactionCase):
         self.assertFalse(partner.vat)
         self._enrich(partner)
         self.assertFalse(partner.vat)
+        # Also through the name-only path and the wizard.
+        p2 = self._company_partner(name='Testbolaget AB')
+        action = self._enrich(p2, interactive=True, companies={}, search=[COMPANY])
+        wizard = self.env['foretagssok.enrich.wizard'].browse(action['res_id'])
+        wizard.line_ids.write({'apply': True})
+        wizard.action_apply()
+        self.assertFalse(p2.vat)
         vals = self.Partner._foretagsapi_map_company(COMPANY)
         self.assertNotIn('vat', vals)
 

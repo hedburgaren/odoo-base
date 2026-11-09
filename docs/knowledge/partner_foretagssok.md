@@ -8,8 +8,11 @@ Enrich `res.partner` records with official Swedish company data from
 The module was created as a clean replacement for `partner_allabolag`, which
 relied on web scraping through Tor.
 
-Version 18.0.1.1.0 (SEC-B 2026-11-09) changes how enrichment writes data and
-where the API key comes from, see below.
+Version 18.0.1.2.0 (SEC-B decision 2026-11-09, findings 156 and 160) changes
+how enrichment writes data and where the API key comes from, see below.
+
+**The rule: enrichment only fills empty fields. It never overwrites a field
+that has a value, and it never writes `vat`.**
 
 ## Data flow
 1. User triggers enrichment from the partner form button
@@ -26,24 +29,29 @@ where the API key comes from, see below.
    * `name`, `company_registry`, `street`, `zip`, `city`, `country_id` are
      written directly only when the partner's field is empty.
    * If the partner has a different non-empty value, the proposal is a
-     conflict and is not written.
+     conflict: never written, never applicable, only listed in a chatter note.
    * For a name match, `name` and `company_registry` are never written
-     directly, not even into empty fields.
-   * The module's own data (`foretagssok_*` fields, financials, SNI links) is
-     refreshed as before, it holds API data and no manual input.
+     directly, not even into empty fields (they wait for the wizard).
+   * The module's own data (`foretagssok_*` fields, financials, SNI links
+     `sni_id`/`sni_ids` from partner_sni) is refreshed as before. None of these
+     is a standard partner field, so the fill-empty-only rule does not apply.
 6. A chatter message summarises what was written.
 
 ## Confirmation flow
 Models `foretagssok.enrich.wizard` and `foretagssok.enrich.wizard.line`
 (transient, access for `base.group_user`, the same users that can enrich).
-Each line holds field, current value, proposed value, reason (`conflict` or
-`name_match`) and an `apply` checkbox, default off.
-* Single record, button: the wizard opens when there is anything to confirm.
-  "Apply selected" writes only the checked lines with the rights of the current
-  user and posts a chatter note. Only the six fields above are accepted, any
-  other `field_name` raises a UserError.
-* Multi record, server action: no wizard. Conflicts and name-only matches are
-  skipped and one chatter note per partner lists current and proposed values.
+Each line holds field, current value, proposed value, reason (only
+`name_match`) and an `apply` checkbox, default off. Conflicts never become
+lines.
+* Single record, button: the wizard opens only when a name-only match left
+  empty name or org. number fields to confirm. "Apply selected" fills only the
+  checked lines with the rights of the current user and posts a chatter note.
+  Only the six fields above are accepted, any other `field_name` raises a
+  UserError. At apply time each line is re-checked: if the partner field has a
+  value by then, the line is refused (left unchanged) and named in the chatter.
+* Multi record, server action: no wizard. Name-only matches are skipped and
+  one chatter note per partner lists current and proposed values.
+* Conflicts (both paths): one chatter note lists current value and API value.
 
 ## VAT
 Enrichment never sets `vat`. The earlier code built `SE` + org. number + `01`,

@@ -62,8 +62,10 @@
             <form>
                 <sheet>
                     <p class="text-muted">
-                        FöretagsAPI proposes the values below. Tick the lines you want to apply.
-                        Nothing is written for unticked lines.
+                        The company was found by name only. FöretagsAPI proposes the
+                        values below for fields that are empty. Tick the lines you want
+                        to fill. Nothing is written for unticked lines, and a field that
+                        has a value is never overwritten.
                     </p>
                     <group>
                         <field name="partner_id" readonly="1"/>

@@ -20,14 +20,23 @@ class ForetagssokEnrichWizard(models.TransientModel):
         'foretagssok.enrich.wizard.line', 'wizard_id', string='Proposed changes')
 
     def action_apply(self):
-        """Write only the checked lines, with the rights of the current user."""
+        """Fill the checked lines, with the rights of the current user.
+
+        SEC-B decision 2026-11-09: only empty fields are ever filled. The
+        partner is re-checked here, a line whose field has a value by now
+        is refused (left unchanged) and named in the chatter.
+        """
         self.ensure_one()
         vals = {}
         applied = []
+        refused = []
         for line in self.line_ids.filtered('apply'):
             fname = line.field_name
             if fname not in CONFIRM_FIELDS:
                 raise UserError(_('This field cannot be changed from here: %s') % fname)
+            if self.partner_id._foretagsapi_field_is_set(fname):
+                refused.append(line)
+                continue
             if fname == 'country_id':
                 vals[fname] = int(line.proposed_raw)
             else:
@@ -51,6 +60,17 @@ class ForetagssokEnrichWizard(models.TransientModel):
                 ),
                 message_type='notification',
             )
+        if refused:
+            self.partner_id.message_post(
+                body=Markup('%s<ul>%s</ul>') % (
+                    _('FöretagsAPI only fills empty fields. These fields '
+                      'already have a value and were left unchanged:'),
+                    Markup('').join(
+                        Markup('<li>%s</li>') % line.field_label
+                        for line in refused),
+                ),
+                message_type='notification',
+            )
         return {'type': 'ir.actions.act_window_close'}
 
 
@@ -68,7 +88,6 @@ class ForetagssokEnrichWizardLine(models.TransientModel):
     proposed_raw = fields.Char(string='Proposed Raw Value', readonly=True)
     reason = fields.Selection(
         selection=[
-            ('conflict', 'Differs from current value'),
             ('name_match', 'Matched by name only'),
         ],
         string='Reason', readonly=True)

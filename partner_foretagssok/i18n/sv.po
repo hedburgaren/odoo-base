@@ -497,8 +497,18 @@ msgstr "(tomt)"
 
 #. module: partner_foretagssok
 #: code:addons/partner_foretagssok/models/res_partner.py:0
-msgid "FöretagsAPI enrichment did not apply these fields (current value / proposed value). Open the contact and use \"Enrich from FöretagsAPI\" to confirm them one by one:"
-msgstr "FöretagsAPI-anrikningen tillämpade inte dessa fält (nuvarande värde / föreslaget värde). Öppna kontakten och använd \"Anrik från FöretagsAPI\" för att bekräfta dem en och en:"
+msgid "FöretagsAPI found a match by name only, so these empty fields were not filled (current value / proposed value). Open the contact and use \"Enrich from FöretagsAPI\" to confirm them:"
+msgstr "FöretagsAPI hittade enbart en namnträff, så dessa tomma fält fylldes inte (nuvarande värde / föreslaget värde). Öppna kontakten och använd \"Anrik från FöretagsAPI\" för att bekräfta dem:"
+
+#. module: partner_foretagssok
+#: code:addons/partner_foretagssok/models/res_partner.py:0
+msgid "FöretagsAPI enrichment only fills empty fields. These fields already have a value and were left unchanged (current value / value from FöretagsAPI):"
+msgstr "FöretagsAPI-anrikningen fyller bara tomma fält. Dessa fält har redan ett värde och lämnades oförändrade (nuvarande värde / värde från FöretagsAPI):"
+
+#. module: partner_foretagssok
+#: code:addons/partner_foretagssok/models/foretagssok_enrich_wizard.py:0
+msgid "FöretagsAPI only fills empty fields. These fields already have a value and were left unchanged:"
+msgstr "FöretagsAPI fyller bara tomma fält. Dessa fält har redan ett värde och lämnades oförändrade:"
 
 #. module: partner_foretagssok
 #: code:addons/partner_foretagssok/models/foretagssok_enrich_wizard.py:0
@@ -552,11 +562,6 @@ msgid "Reason"
 msgstr "Orsak"
 
 #. module: partner_foretagssok
-#: model:ir.model.fields.selection,name:partner_foretagssok.selection__foretagssok_enrich_wizard_line__reason__conflict
-msgid "Differs from current value"
-msgstr "Skiljer sig från nuvarande värde"
-
-#. module: partner_foretagssok
 #: model:ir.model.fields.selection,name:partner_foretagssok.selection__foretagssok_enrich_wizard_line__reason__name_match
 msgid "Matched by name only"
 msgstr "Träff enbart på namn"
@@ -568,8 +573,8 @@ msgstr "Tillämpa"
 
 #. module: partner_foretagssok
 #: model_terms:ir.ui.view,arch_db:partner_foretagssok.view_foretagssok_enrich_wizard_form
-msgid "FöretagsAPI proposes the values below. Tick the lines you want to apply. Nothing is written for unticked lines."
-msgstr "FöretagsAPI föreslår värdena nedan. Kryssa i de rader du vill tillämpa. Inget skrivs för rader utan kryss."
+msgid "The company was found by name only. FöretagsAPI proposes the values below for fields that are empty. Tick the lines you want to fill. Nothing is written for unticked lines, and a field that has a value is never overwritten."
+msgstr "Företaget hittades enbart på namn. FöretagsAPI föreslår värdena nedan för fält som är tomma. Kryssa i de rader du vill fylla. Inget skrivs för rader utan kryss, och ett fält som har ett värde skrivs aldrig över."
 
 #. module: partner_foretagssok
 #: model_terms:ir.ui.view,arch_db:partner_foretagssok.view_foretagssok_enrich_wizard_form
