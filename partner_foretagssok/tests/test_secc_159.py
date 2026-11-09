@@ -14,11 +14,14 @@ from odoo.addons.partner_foretagssok.tests.test_foretagssok import (
     COMPANY, POST, TestForetagssok, _fake_post)
 
 COMPANY_WITH_SNI = dict(COMPANY, sniCodes={
-    'sni1': '25110', 'sni1_name': 'Byggentreprenad'})
+    'sni1': '99990', 'sni1_name': 'Testgren SEC-C'})
 
 
 @tagged('post_install', '-at_install')
 class TestSniSavepoint(TestForetagssok):
+    """SNI code 99990 does not exist in the staging database, so the create
+    path is the one under test: an existing code would only be linked, not
+    created."""
 
     def test_failed_sni_create_does_not_abort_enrichment(self):
         partner = self._company_partner(
@@ -39,4 +42,4 @@ class TestSniSavepoint(TestForetagssok):
         with patch(POST, side_effect=post):
             partner._foretagsapi_enrich_single(interactive=False)
         self.assertTrue(partner.sni_id)
-        self.assertEqual(partner.sni_id.code, '25110')
+        self.assertEqual(partner.sni_id.code, '99990')

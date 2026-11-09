@@ -46,10 +46,10 @@ class TestSimilarWizardCreate(TransactionCase):
             wizard.action_create_partners()
         self.assertEqual(
             self.env['res.partner'].search_count(
-                [('company_registry', '=', '556000-1234')]),
+                [('company_registry', 'in', ['556000-1234', '5560001234'])]),
             1, 'the existing partner must not be duplicated')
         new_partner = self.env['res.partner'].search(
-            [('company_registry', '=', '556999-8887')])
+            [('company_registry', 'in', ['556999-8887', '5569998887'])])
         self.assertEqual(len(new_partner), 1)
         # The enrich path ran on the new partner: its note about only
         # filling empty fields is in the chatter.

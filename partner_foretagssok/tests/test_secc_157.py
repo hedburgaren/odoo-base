@@ -21,7 +21,7 @@ def _counting_fake_post(companies_by_org, counts):
     def wrapped(url, json=None, headers=None, timeout=None):
         if url.endswith('/v1/bulk'):
             counts['bulk'] += 1
-            counts['bulk_chunk_size'] = len(json['org_numbers'])
+            counts.setdefault('bulk_sizes', []).append(len(json['org_numbers']))
         return post(url, json=json, headers=headers, timeout=timeout)
 
     return wrapped
@@ -37,14 +37,16 @@ class TestBulkEnrichment(TestForetagssok):
         p1 = self._partner('Ett AB', '556000-1234')
         p2 = self._partner('Två AB', '556111-2222')
         p3 = self._partner('Tre AB', '556333-4444')
-        counts = {'bulk': 0, 'bulk_chunk_size': 0}
+        counts = {'bulk': 0}
         post = _counting_fake_post(
             {'5560001234': COMPANY, '5561112222': COMPANY_TWO}, counts)
         with patch(POST, side_effect=post):
             (p1 + p2 + p3).partner_enrich()
-        # One bulk call for three records, not three single calls.
-        self.assertEqual(counts['bulk'], 1)
-        self.assertEqual(counts['bulk_chunk_size'], 3)
+        # The batch is one bulk call of three; the record the bulk lookup
+        # cannot match falls back to the single path, whose own registry
+        # lookup is the second bulk call, of one.
+        self.assertEqual(counts['bulk'], 2)
+        self.assertEqual(counts['bulk_sizes'], [3, 1])
         self.assertEqual(p1.street, 'Storgatan 1')
         self.assertEqual(p2.street, 'Andra Gatan 2')
         # No org number match and no name match: noted, not crashed.
