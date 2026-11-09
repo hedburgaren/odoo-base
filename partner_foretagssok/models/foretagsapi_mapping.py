@@ -22,15 +22,6 @@ class ForetagsapiMappingMixin(models.AbstractModel):
             return digits or False
         return f'{digits[:6]}-{digits[6:]}'
 
-    def _foretagsapi_org_number_to_vat(self, org_number):
-        """Build a Swedish VAT number from an organisation number."""
-        if not org_number:
-            return False
-        digits = re.sub(r'\D', '', str(org_number))
-        if len(digits) != 10:
-            return False
-        return f'SE{digits}01'
-
     def _foretagsapi_parse_date(self, value):
         if not value:
             return False
@@ -169,12 +160,14 @@ class ForetagsapiMappingMixin(models.AbstractModel):
             return {}
 
         org_number = self._foretagsapi_format_org_number(company.get('orgNumber'))
-        vat = self._foretagsapi_org_number_to_vat(company.get('orgNumber'))
 
+        # SEC-B 2026-11-09 (finding 160): no VAT number is built here. The old
+        # code fabricated SE + orgnr + 01, which is not a verified VAT number.
+        # The API response has no VAT-registration flag in this mapping, so
+        # vat is never set by enrichment.
         vals = {
             'name': company.get('name') or False,
             'company_registry': org_number,
-            'vat': vat,
             'foretagssok_business_description': company.get('businessDescription') or False,
             'foretagssok_registration_date': self._foretagsapi_parse_date(company.get('registrationDate')),
             'foretagssok_deregistration_date': self._foretagsapi_parse_date(company.get('deregistrationDate')),

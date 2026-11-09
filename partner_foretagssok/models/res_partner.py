@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 import logging
+import os
 import re
 
 import requests
+from markupsafe import Markup, escape
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -12,6 +14,14 @@ from .foretagsapi_mapping import ForetagsapiMappingMixin
 _logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = 'https://data.foretagsapi.se'
+ENV_API_KEY_NAME = 'FORETAGSAPI_API_KEY'
+
+# SEC-B 2026-11-09 (finding 156): fields that enrichment may only fill when
+# empty. A differing value, or any value from a name-only match, goes through
+# a confirmation step instead of being written directly.
+IDENTITY_FIELDS = ('name', 'company_registry')
+ADDRESS_FIELDS = ('street', 'zip', 'city', 'country_id')
+CONFIRM_FIELDS = IDENTITY_FIELDS + ADDRESS_FIELDS
 
 
 class ResPartnerFinancials(models.Model):
@@ -74,12 +84,20 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
 
     @api.model
     def _foretagsapi_get_config(self):
+        """Return (api_key, base_url).
+
+        SEC-B 2026-11-09 (finding 162): the key is read from
+        ir.config_parameter first, then from the environment variable
+        FORETAGSAPI_API_KEY. No file inside the addon tree is ever read.
+        """
         params = self.env['ir.config_parameter'].sudo()
-        api_key = params.get_param('partner_foretagssok.api_key', default='').strip()
-        base_url = params.get_param(
+        api_key = (params.get_param('partner_foretagssok.api_key', default='') or '').strip()
+        if not api_key:
+            api_key = (os.environ.get(ENV_API_KEY_NAME) or '').strip()
+        base_url = (params.get_param(
             'partner_foretagssok.base_url',
             default=DEFAULT_BASE_URL,
-        ).strip().rstrip('/')
+        ) or DEFAULT_BASE_URL).strip().rstrip('/')
         return api_key, base_url
 
     @api.model
@@ -88,7 +106,7 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
         if not api_key:
             raise UserError(_(
                 'FöretagsAPI API key is missing. Add it in Settings -> Contacts, '
-                'or place FORETAGSSOK_API_KEY in partner_foretagssok/.env.'
+                'or set the environment variable FORETAGSAPI_API_KEY on the server.'
             ))
         return api_key, base_url
 
@@ -182,13 +200,22 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
 
     def partner_enrich(self):
         """Override partner_enrich_base to fetch from FöretagsAPI."""
+        # Only the single-record button sets this context key: it may open the
+        # confirmation wizard. The multi-record server action never does, it
+        # skips what needs confirmation and notes it in the chatter.
+        interactive = len(self) == 1 and bool(
+            self.env.context.get('foretagsapi_interactive'))
+        action = False
         for partner in self:
-            partner._foretagsapi_enrich_single()
+            result = partner._foretagsapi_enrich_single(interactive=interactive)
+            if result:
+                action = result
         # Keep the chain alive for other enrich modules
         if hasattr(super(ResPartner, self), 'partner_enrich'):
             super(ResPartner, self).partner_enrich()
+        return action
 
-    def _foretagsapi_enrich_single(self):
+    def _foretagsapi_enrich_single(self, interactive=False):
         self.ensure_one()
         if self.company_type != 'company':
             self.message_post(
@@ -198,6 +225,7 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
             return
 
         company = False
+        name_match = False
         if self.company_registry:
             companies = self._foretagsapi_lookup_by_org_numbers([self.company_registry])
             company = companies[0] if companies else False
@@ -206,6 +234,7 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
             companies = self._foretagsapi_search_by_name(self.name, limit=5)
             if len(companies) == 1:
                 company = companies[0]
+                name_match = True
             elif len(companies) > 1:
                 self.message_post(
                     body=_(
@@ -223,16 +252,104 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
             )
             return
 
-        self._foretagsapi_apply_company(company)
+        return self._foretagsapi_apply_company(
+            company, name_match=name_match, interactive=interactive)
 
-    def _foretagsapi_apply_company(self, company):
+    # -- confirmation of identity and address data (SEC-B finding 156) ------
+
+    def _foretagsapi_field_is_set(self, fname):
+        value = self[fname]
+        if fname == 'country_id':
+            return bool(value)
+        return bool((value or '').strip())
+
+    def _foretagsapi_same_value(self, fname, proposed):
+        if fname == 'country_id':
+            return self.country_id.id == proposed
+        current = (self[fname] or '').strip()
+        proposed = (proposed or '').strip()
+        if fname == 'company_registry':
+            return re.sub(r'\D', '', current) == re.sub(r'\D', '', proposed)
+        return current.casefold() == proposed.casefold()
+
+    def _foretagsapi_split_confirmations(self, vals, name_match):
+        """Remove from ``vals`` everything that must not be written directly.
+
+        Name, org. number and address fields are only filled when empty.
+        When the API value differs from a non-empty value, it is a conflict.
+        When the match came from a name search, name and org. number are
+        never written directly, not even into empty fields. Returns the list
+        of items to confirm (dicts for the confirmation wizard lines).
+        """
+        self.ensure_one()
+        items = []
+        for fname in CONFIRM_FIELDS:
+            if fname not in vals:
+                continue
+            proposed = vals[fname]
+            is_set = self._foretagsapi_field_is_set(fname)
+            if is_set and self._foretagsapi_same_value(fname, proposed):
+                vals.pop(fname)
+                continue
+            if not is_set and not (name_match and fname in IDENTITY_FIELDS):
+                continue  # plain fill of an empty field, written directly
+            vals.pop(fname)
+            if fname == 'country_id':
+                current_display = self.country_id.display_name or ''
+                proposed_display = self.env['res.country'].browse(proposed).display_name or ''
+                proposed_raw = str(proposed)
+            else:
+                current_display = self[fname] or ''
+                proposed_display = proposed
+                proposed_raw = proposed
+            items.append({
+                'field_name': fname,
+                'field_label': self._fields[fname]._description_string(self.env),
+                'current_value': current_display,
+                'proposed_value': proposed_display,
+                'proposed_raw': proposed_raw,
+                'reason': 'conflict' if is_set else 'name_match',
+            })
+        return items
+
+    def _foretagsapi_skipped_note(self, items):
+        empty = _('(empty)')
+        lines = Markup('').join(
+            Markup('<li>%s: %s / %s</li>') % (
+                item['field_label'],
+                item['current_value'] or empty,
+                item['proposed_value'],
+            ) for item in items
+        )
+        return Markup('%s<ul>%s</ul>') % (
+            _('FöretagsAPI enrichment did not apply these fields '
+              '(current value / proposed value). Open the contact and use '
+              '"Enrich from FöretagsAPI" to confirm them one by one:'),
+            lines,
+        )
+
+    def _foretagsapi_open_confirm_wizard(self, items):
+        self.ensure_one()
+        wizard = self.env['foretagssok.enrich.wizard'].create({
+            'partner_id': self.id,
+            'line_ids': [(0, 0, dict(item, apply=False)) for item in items],
+        })
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Confirm FöretagsAPI changes'),
+            'res_model': 'foretagssok.enrich.wizard',
+            'res_id': wizard.id,
+            'view_mode': 'form',
+            'target': 'new',
+        }
+
+    def _foretagsapi_apply_company(self, company, name_match=False, interactive=False):
         self.ensure_one()
         vals = self._foretagsapi_map_company(company)
         if not vals:
-            return
+            return False
 
-        # Avoid overwriting a manually entered website; only fill empty fields
-        # for core contact data if desired. Address fields are always updated.
+        confirm_items = self._foretagsapi_split_confirmations(vals, name_match)
 
         # Replace financials for the same fiscal year instead of duplicating
         if 'foretagssok_financial_ids' in vals:
@@ -255,6 +372,15 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
         message = self._foretagsapi_enrichment_message(company, vals)
         self.message_post(body=message, message_type='notification')
 
+        if confirm_items:
+            if interactive:
+                return self._foretagsapi_open_confirm_wizard(confirm_items)
+            self.message_post(
+                body=self._foretagsapi_skipped_note(confirm_items),
+                message_type='notification',
+            )
+        return False
+
     def _foretagsapi_enrichment_message(self, company, vals):
         name = company.get('name', '')
         org = company.get('orgNumber', '')
@@ -265,7 +391,7 @@ class ResPartner(models.Model, ForetagsapiMappingMixin):
     # -------------------------------------------------------------------------
 
     def action_foretagsapi_enrich(self):
-        self.partner_enrich()
+        return self.with_context(foretagsapi_interactive=True).partner_enrich()
 
     def action_foretagsapi_find_similar(self):
         self.ensure_one()

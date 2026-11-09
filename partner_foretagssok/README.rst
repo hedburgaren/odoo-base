@@ -12,7 +12,7 @@ Features
 
 * Enrich individual or selected partners from the contact form or via a server
   action.
-* Fetches: name, organisation number, VAT, address, SNI codes, business
+* Fetches: name, organisation number, address, SNI codes, business
   description, registration status, revenue/employee estimates and financial
   key figures.
 * Integrates with ``partner_sni``: SNI codes are looked up or created and
@@ -23,18 +23,24 @@ Features
 Configuration
 -------------
 
-1. Place your API key in ``partner_foretagssok/.env`` as
-   ``FORETAGSSOK_API_KEY=<key>``. It is loaded automatically when the module
-   is installed.
-2. Alternatively, enter the key in Settings -> Contacts -> FöretagsAPI.
+The API key is read from the system parameter ``partner_foretagssok.api_key``
+first (Settings -> Contacts -> FöretagsAPI), then from the environment variable
+``FORETAGSAPI_API_KEY``. No file inside the addon folder is read.
 
 Usage
 -----
 
 * Open a company contact and click **Enrich from FöretagsAPI**.
-* If the partner has no organisation number, the module searches by name and
-  uses the only match. When several matches exist, a notification is posted
-  and the user must add an organisation number.
+* Name, organisation number and address are only filled when empty. A
+  differing value, or any name or organisation number from a name-only match,
+  is shown in a confirmation wizard with one checkbox per line (unchecked by
+  default). Only checked lines are written.
+* The server action on several contacts never opens a wizard: it skips those
+  fields and posts a chatter note per contact.
+* VAT numbers are never set by enrichment.
+* If the partner has no organisation number, the module searches by name. When
+  several matches exist, a notification is posted and the user must add an
+  organisation number.
 * When the partner has an SNI code, click **Find Similar Companies** to search
   for other companies in the same branch.
 

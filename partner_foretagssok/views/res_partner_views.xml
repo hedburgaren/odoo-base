@@ -55,6 +55,37 @@
         </field>
     </record>
 
+    <record id="view_foretagssok_enrich_wizard_form" model="ir.ui.view">
+        <field name="name">foretagssok.enrich.wizard.form</field>
+        <field name="model">foretagssok.enrich.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <p class="text-muted">
+                        FöretagsAPI proposes the values below. Tick the lines you want to apply.
+                        Nothing is written for unticked lines.
+                    </p>
+                    <group>
+                        <field name="partner_id" readonly="1"/>
+                    </group>
+                    <field name="line_ids">
+                        <list editable="bottom" create="0" delete="0">
+                            <field name="apply" widget="boolean_toggle"/>
+                            <field name="field_label"/>
+                            <field name="current_value"/>
+                            <field name="proposed_value"/>
+                            <field name="reason"/>
+                        </list>
+                    </field>
+                </sheet>
+                <footer>
+                    <button name="action_apply" string="Apply selected" type="object" class="oe_highlight"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
     <record id="view_foretagssok_similar_wizard_form" model="ir.ui.view">
         <field name="name">foretagssok.similar.wizard.form</field>
         <field name="model">foretagssok.similar.wizard</field>

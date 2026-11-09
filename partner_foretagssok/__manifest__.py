@@ -21,7 +21,10 @@
 
 {
     'name': 'Base: Enrich partner information from FöretagsAPI',
-    'version': '18.0.1.0.0',
+    # SEC-B 2026-11-09: 18.0.1.1.0, enrichment fills only empty identity fields
+    # (confirmation wizard), no fabricated VAT, API key from config parameter
+    # or FORETAGSAPI_API_KEY, .env loader removed.
+    'version': '18.0.1.1.0',
     'summary': 'Enrich partner with data from FöretagsAPI.se',
     'category': 'Website',
     'description': """
@@ -51,7 +54,6 @@
         'views/res_config_settings_views.xml',
         'views/res_partner_views.xml',
     ],
-    'post_init_hook': 'post_init_hook',
     'application': False,
     'installable': True,
 }
