@@ -11,6 +11,25 @@ relied on web scraping through Tor.
 Version 18.0.1.2.0 (SEC-B decision 2026-11-09, findings 156 and 160) changes
 how enrichment writes data and where the API key comes from, see below.
 
+Version 18.0.1.3.0 (SEC-C, triage 157, 159 and 161, 2026-11-09) changes how
+multi-record enrichment and the similar-companies wizard work:
+
+* The server action (any number of records) collects the partners that have
+  an organisation number and looks them up through `POST /v1/bulk` in chunks
+  of 50, instead of one call per record with a 10-second timeout each. Every
+  record is applied inside its own savepoint, so one failure costs only that
+  record instead of rolling back the whole selection; a record the bulk
+  lookup cannot find falls back to the single-record path (name search).
+  Partners without an organisation number still go one by one.
+* The SNI rows of one enrichment are created inside a savepoint each, so a
+  database error on one SNI code is logged and skipped instead of poisoning
+  the whole transaction.
+* The wizard's "Create Selected Partners" skips selected lines whose
+  organisation number already exists as a partner (no duplicates), fills the
+  new partners through the ordinary `partner_enrich` path instead of leaving
+  half-filled rows, and raises a clear error when every selected line already
+  exists.
+
 **The rule: enrichment only fills empty fields. It never overwrites a field
 that has a value, and it never writes `vat`.**
 

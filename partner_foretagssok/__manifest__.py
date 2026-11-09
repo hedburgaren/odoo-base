@@ -26,7 +26,10 @@
     # or FORETAGSAPI_API_KEY, .env loader removed.
     # SEC-B decision 2026-11-09: 18.0.1.2.0, fill-empty-only, never overwrite;
     # a conflicting value is reported in the chatter, never applicable.
-    'version': '18.0.1.2.0',
+    # SEC-C 2026-11-09: 18.0.1.3.0, bulk enrichment in chunks of 50 with a
+    # savepoint per record, SNI creates in a savepoint, the similar wizard
+    # skips existing organisation numbers and enriches what it creates.
+    'version': '18.0.1.3.0',
     'summary': 'Enrich partner with data from FöretagsAPI.se',
     'category': 'Website',
     'description': """
